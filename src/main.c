@@ -37,6 +37,8 @@ int main(int argc, char *argv[])
     fread(&image.header.packed,        1, 1, file);
     fread(&image.header.background,    1, 1, file);
     fread(&image.header.aspect_ratio,  1, 1, file);
+    int screen_width  = image.header.screen_width,
+        screen_height = image.header.screen_height;
 
     printf("----- HEADER OF epicpolarbear.gif -----\n");
     printf("signature:     %c%c%c\n",    image.header.signature[0],
@@ -83,17 +85,20 @@ int main(int argc, char *argv[])
     // For a color table of size 256, a position of 781 in the file after initial setup would make sense:
     // 13 byte header + 3 r/g/b values * 256 colors = 13 + 768 = 781
 
+    double scale = 3.0;
+    int window_width  = image.header.screen_width  * scale,
+        window_height = image.header.screen_height * scale;
     SDL_Window *window = SDL_CreateWindow(
         "epicpolarbearmeme.gif",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        image.header.screen_width * 3, image.header.screen_height * 3, 0);
+        window_width, window_height, 0);
     assert(window != NULL);
     SDL_Renderer *renderer = SDL_CreateRenderer(
         window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     assert(renderer != NULL);
 
     // For now, only render one texture
-    SDL_Surface *surface = NULL;
+    SDL_Texture *texture = NULL;
 
     // Start reading image and extension blocks
     int parsing = 1;
@@ -170,6 +175,11 @@ int main(int argc, char *argv[])
             fread(&new_block->imgdesc.width,  1, 2, file);
             fread(&new_block->imgdesc.height, 1, 2, file);
             fread(&new_block->imgdesc.packed, 1, 1, file);
+            printf("New block at %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16"\n",
+                new_block->imgdesc.left,
+                new_block->imgdesc.top,
+                new_block->imgdesc.width,
+                new_block->imgdesc.height);
 
             // Local color table
             if (new_block->imgdesc.packed & 1) {
@@ -186,27 +196,44 @@ int main(int argc, char *argv[])
                 printf("Read local color table of size %"PRIu64"\n", new_block->colortable_length);
             }
 
-            if (surface == NULL) {
-                int width = image.header.screen_width;
-                int height = image.header.screen_width;
+            if (texture == NULL) {
+                SDL_Surface *surface = NULL;
+                uint8_t *pixels = malloc(screen_width * screen_height * 3);
 
-                uint8_t *pixels = malloc(width * height * 3);
-                for (int i = 0; i < width * height * 3; i += 3) {
-                    pixels[i]   = 0x00;
-                    pixels[i+1] = 0x00;
-                    pixels[i+2] = 0xFF;
+                // Clear
+                for (int i = 0; i < screen_width * screen_height * 3; i++) {
+                    pixels[i] = 0x00;
                 }
-                surface = SDL_CreateRGBSurfaceFrom(
-                    pixels, width, height, 24, 3 * width,
-                    0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
-                free(pixels);
 
+                // Decode the image data and then create the surface
                 fseek(file, 1, SEEK_CUR);
                 fread(&magic, 1, 1, file);
+                // Progress in the pixels buffer
+                gif_imgdesc *desc = &new_block->imgdesc;
+                int progress = desc->top * desc->width + desc->left;
                 while (magic != 0) {
-                    fseek(file, magic, SEEK_CUR);
+                    for (uint8_t i = 0; i < magic; i++) {
+                        uint64_t color_index = 0;
+                        fread(&color_index, 1, 1, file);
+                        gif_color *color = &image.colortable[color_index];
+                        pixels[progress  ] = color->r;
+                        pixels[progress+1] = color->g;
+                        pixels[progress+2] = color->b;
+                        progress += 3;
+                    }
                     fread(&magic, 1, 1, file);
                 }
+
+                // Little endian, in this case
+                // TODO: We may want to make this portable
+                // See https://wiki.libsdl.org/SDL_CreateRGBSurfaceFrom for more
+                surface = SDL_CreateRGBSurfaceFrom(
+                    pixels, screen_width, screen_height, 24, 3 * screen_width,
+                    0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
+                texture = SDL_CreateTextureFromSurface(renderer, surface);
+                SDL_FreeSurface(surface);
+                // Remember to free the pixel data AFTER using it, since it does not get copied
+                free(pixels);
             }
             else {
                 fseek(file, 1, SEEK_CUR);
@@ -225,9 +252,6 @@ int main(int argc, char *argv[])
 
     fclose(file);
 
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    SDL_FreeSurface(surface);
-
     int running = 1;
     while (running) {
         SDL_Event event;
@@ -244,7 +268,7 @@ int main(int argc, char *argv[])
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
 
-        SDL_Rect dstrect = { 0, 0, image.header.screen_width * 3, image.header.screen_height * 3 };
+        SDL_Rect dstrect = { 0, 0, window_width, window_height };
         SDL_RenderCopy(renderer, texture, NULL, &dstrect);
 
         SDL_RenderPresent(renderer);
