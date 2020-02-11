@@ -1,67 +1,22 @@
-// Source: https://www.fileformat.info/format/gif/egff.htm
-
 #include <assert.h>
-#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <SDL2/SDL.h>
 
-// Not used at the moment
-#define GIF_SEPARATOR  0x2C
-#define GIF_CONTROL    0x21
-#define GIF_TERMINATOR 0
-#define GIF_TRAILER    0x3B
-
-typedef struct {
-    // ACTUAL HEADER (6 bytes)
-    uint8_t  signature[3];
-    uint8_t  version[3];
-    uint16_t screen_width;
-    uint16_t screen_height;
-    // LOGICAL SCREEN DESCRIPTORS (3 bytes)
-    uint8_t packed;
-    uint8_t background;
-    // We can calculate this using
-    // (aspect_ratio + 15) / 64
-    uint8_t aspect_ratio;
-} gif_header;
-
-typedef struct {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-} gif_color;
-
-typedef struct {
-    uint8_t  separator; // Always 0x2C
-    uint16_t left;
-    uint16_t top;
-    uint16_t width;
-    uint16_t height;
-    uint8_t  packed;
-} gif_imgdesc;
-
-typedef struct {
-    gif_imgdesc imgdesc;
-    gif_color*  colortable;
-    uint64_t    colortable_length;
-} gif_block;
-
-typedef struct {
-    gif_header header;
-    gif_color* colortable;
-    uint64_t   colortable_length;
-    gif_block* blocks;
-    uint64_t   block_count;
-} gif_image;
+#include "gif.h"
 
 int main(int argc, char *argv[])
 {
     (void) argc;
     (void) argv;
 
-    gif_image image;
+    if (SDL_Init(SDL_INIT_EVENTS | SDL_INIT_TIMER | SDL_INIT_VIDEO) != 0) {
+        printf("%s\n", SDL_GetError());
+        return EXIT_FAILURE;
+    }
+
+    gif_img image;
     image.colortable = NULL;
     image.colortable_length = 0;
     image.blocks = NULL;
@@ -128,6 +83,18 @@ int main(int argc, char *argv[])
     // For a color table of size 256, a position of 781 in the file after initial setup would make sense:
     // 13 byte header + 3 r/g/b values * 256 colors = 13 + 768 = 781
 
+    SDL_Window *window = SDL_CreateWindow(
+        "epicpolarbearmeme.gif",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        image.header.screen_width * 3, image.header.screen_height * 3, 0);
+    assert(window != NULL);
+    SDL_Renderer *renderer = SDL_CreateRenderer(
+        window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    assert(renderer != NULL);
+
+    // For now, only render one texture
+    SDL_Surface *surface = NULL;
+
     // Start reading image and extension blocks
     int parsing = 1;
     while (parsing) {
@@ -187,11 +154,12 @@ int main(int argc, char *argv[])
             printf("SKIPPED CONTROL BLOCK TO %ld\n", ftell(file) - 1);
         }
         else if (magic == GIF_SEPARATOR) {
-            gif_block *new_blocks = realloc(image.blocks, sizeof(gif_block) * (image.block_count + 1));
+            gif_imgblock *new_blocks = realloc(image.blocks, sizeof(gif_imgblock) * (image.block_count + 1));
             assert(new_blocks != NULL);
             image.blocks = new_blocks;
             image.block_count++;
-            gif_block *new_block = &image.blocks[image.block_count - 1];
+            
+            gif_imgblock *new_block = &image.blocks[image.block_count - 1];
             new_block->colortable = NULL;
             new_block->colortable_length = 0;
 
@@ -218,11 +186,35 @@ int main(int argc, char *argv[])
                 printf("Read local color table of size %"PRIu64"\n", new_block->colortable_length);
             }
 
-            fseek(file, 1, SEEK_CUR);
-            fread(&magic, 1, 1, file);
-            while (magic != 0) {
-                fseek(file, magic, SEEK_CUR);
+            if (surface == NULL) {
+                int width = image.header.screen_width;
+                int height = image.header.screen_width;
+
+                uint8_t *pixels = malloc(width * height * 3);
+                for (int i = 0; i < width * height * 3; i += 3) {
+                    pixels[i]   = 0x00;
+                    pixels[i+1] = 0x00;
+                    pixels[i+2] = 0xFF;
+                }
+                surface = SDL_CreateRGBSurfaceFrom(
+                    pixels, width, height, 24, 3 * width,
+                    0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
+                free(pixels);
+
+                fseek(file, 1, SEEK_CUR);
                 fread(&magic, 1, 1, file);
+                while (magic != 0) {
+                    fseek(file, magic, SEEK_CUR);
+                    fread(&magic, 1, 1, file);
+                }
+            }
+            else {
+                fseek(file, 1, SEEK_CUR);
+                fread(&magic, 1, 1, file);
+                while (magic != 0) {
+                    fseek(file, magic, SEEK_CUR);
+                    fread(&magic, 1, 1, file);
+                }
             }
 
             printf("SKIPPED IMAGE DATA BLOCKS TO %ld\n", ftell(file) - 1);
@@ -231,13 +223,43 @@ int main(int argc, char *argv[])
 
     printf("Block count: %"PRIu64"\n", image.block_count);
 
+    fclose(file);
+
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+
+    int running = 1;
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            switch (event.type) {
+                case SDL_QUIT:
+                    running = 0;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+        SDL_RenderClear(renderer);
+
+        SDL_Rect dstrect = { 0, 0, image.header.screen_width * 3, image.header.screen_height * 3 };
+        SDL_RenderCopy(renderer, texture, NULL, &dstrect);
+
+        SDL_RenderPresent(renderer);
+    }
+
     free(image.colortable);
     for (uint64_t i = 0; i < image.block_count; i++) {
         free(image.blocks[i].colortable);
     }
     free(image.blocks);
 
-    fclose(file);
+    SDL_DestroyTexture(texture);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 
     return EXIT_SUCCESS;
 }

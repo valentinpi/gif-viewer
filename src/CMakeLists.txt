@@ -7,9 +7,9 @@ find_package(SDL2 REQUIRED)
 include_directories(${SDL_INCLUDE_DIR})
 
 # GCC flags
-if(MINGW)
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
     set(CMAKE_C_FLAGS "-O2 -std=c11 -Wall -Wextra")
-endif(MINGW)
+endif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
 
 set(SOURCE_FILES main.c)
 add_executable(gif-viewer ${SOURCE_FILES})
