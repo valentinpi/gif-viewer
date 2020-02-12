@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.15)
 
 project(gif-viewer)
 
@@ -14,4 +14,8 @@ endif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
 set(SOURCE_FILES main.c)
 add_executable(gif-viewer ${SOURCE_FILES})
 #target_link_libraries(gif-viewer ${SDL_LIBRARIES})
-target_link_libraries(gif-viewer "-lmingw32 -lSDL2main -lSDL2")
+if(MINGW)
+    target_link_libraries(gif-viewer "-lmingw32 -lSDL2main -lSDL2")
+else()
+    target_link_libraries(gif-viewer "-lSDL2main -lSDL2")
+endif(MINGW)

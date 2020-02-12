@@ -23,7 +23,8 @@ int main(int argc, char *argv[])
     image.block_count = 0;
 
     // Will skip 0x1A (CTRL+Z byte) on Windows if b is not set
-    FILE *file = fopen64("../epicpolarbear.gif", "r+b");
+    //FILE *file = fopen64("../epicpolarbear.gif", "r+b");
+    FILE *file = fopen("../epicpolarbear.gif", "r+b");
 
     if (file == NULL) {
         fprintf(stderr, "../epicpolarbear.gif could not be opened!\n");
@@ -202,11 +203,14 @@ int main(int argc, char *argv[])
 
                 // Clear
                 for (int i = 0; i < screen_width * screen_height * 3; i++) {
-                    pixels[i] = 0x00;
+                    pixels[i] = 0xFF;
                 }
 
                 // Decode the image data and then create the surface
-                fseek(file, 1, SEEK_CUR);
+                // TODO: Adjust to flexible code sizes
+                uint8_t lzw_minimum = 0;
+                fread(&lzw_minimum, 1, 1, file);
+                printf("Minimum LZW code value: %"PRIu8"\n", lzw_minimum);
                 fread(&magic, 1, 1, file);
                 // Progress in the pixels buffer
                 gif_imgdesc *desc = &new_block->imgdesc;
@@ -219,7 +223,13 @@ int main(int argc, char *argv[])
                         pixels[progress  ] = color->r;
                         pixels[progress+1] = color->g;
                         pixels[progress+2] = color->b;
-                        progress += 3;
+                        pixels[progress+3] = 0x00;
+                        pixels[progress+4] = 0x00;
+                        pixels[progress+5] = 0x00;
+                        pixels[progress+6] = 0x00;
+                        pixels[progress+7] = 0x00;
+                        pixels[progress+8] = 0x00;
+                        progress += 9;
                     }
                     fread(&magic, 1, 1, file);
                 }
@@ -242,10 +252,12 @@ int main(int argc, char *argv[])
                     fseek(file, magic, SEEK_CUR);
                     fread(&magic, 1, 1, file);
                 }
-            }
 
-            printf("SKIPPED IMAGE DATA BLOCKS TO %ld\n", ftell(file) - 1);
+                printf("SKIPPED IMAGE DATA BLOCKS TO %ld\n", ftell(file) - 1);
+            }
         }
+
+        printf("\n");
     }
 
     printf("Block count: %"PRIu64"\n", image.block_count);
