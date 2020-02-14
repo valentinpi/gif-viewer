@@ -65,9 +65,9 @@ int main(int argc, char *argv[])
     printf("colortable_flag:  %"PRIu8"\n", image.header.packed & 0b10000000 >> 7);
     printf("\n");
 
-    uint64_t global_colortable_length = 1L << ((image.header.packed & 0b00000111) + 1);
-    image.colortable = calloc(sizeof(gif_color), global_colortable_length);
-    for (uint64_t i = 0; i < global_colortable_length; i++) {
+    image.colortable_length = 1L << ((image.header.packed & 0b00000111) + 1);
+    image.colortable = calloc(sizeof(gif_color), image.colortable_length);
+    for (uint64_t i = 0; i < image.colortable_length; i++) {
         fread(&image.colortable[i].r, 1, 1, file);
         fread(&image.colortable[i].g, 1, 1, file);
         fread(&image.colortable[i].b, 1, 1, file);
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
     //printf("\n");
 
     printf("--- GLOBAL COLOR TABLE ---\n");
-    printf("length: %"PRIu64"\n", global_colortable_length);
+    printf("length: %"PRIu64"\n", image.colortable_length);
     printf("\n");
 
     // For a color table of size 256, a position of 781 in the file after initial setup would make sense:
@@ -211,28 +211,28 @@ int main(int argc, char *argv[])
                 uint8_t lzw_minimum = 0;
                 fread(&lzw_minimum, 1, 1, file);
                 printf("Minimum LZW code value: %"PRIu8"\n", lzw_minimum);
-                fread(&magic, 1, 1, file);
+                
+                // Initialize color table
+                gif_color *dictionary = malloc(image.colortable_length * sizeof(gif_color));
+                memcpy(dictionary, image.colortable, image.colortable_length * sizeof(gif_color));
+
                 // Progress in the pixels buffer
-                gif_imgdesc *desc = &new_block->imgdesc;
-                int progress = desc->top * desc->width + desc->left;
+                int progress = new_block->imgdesc.top * new_block->imgdesc.width + new_block->imgdesc.left;
+                
+                fread(&magic, 1, 1, file);
                 while (magic != 0) {
                     for (uint8_t i = 0; i < magic; i++) {
                         uint64_t color_index = 0;
                         fread(&color_index, 1, 1, file);
-                        gif_color *color = &image.colortable[color_index];
+                        gif_color *color = &dictionary[color_index];
                         pixels[progress  ] = color->r;
                         pixels[progress+1] = color->g;
                         pixels[progress+2] = color->b;
-                        pixels[progress+3] = 0x00;
-                        pixels[progress+4] = 0x00;
-                        pixels[progress+5] = 0x00;
-                        pixels[progress+6] = 0x00;
-                        pixels[progress+7] = 0x00;
-                        pixels[progress+8] = 0x00;
-                        progress += 9;
+                        progress += 3;
                     }
                     fread(&magic, 1, 1, file);
                 }
+                free(dictionary);
 
                 // Little endian, in this case
                 // TODO: We may want to make this portable
