@@ -11,7 +11,7 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
     set(CMAKE_C_FLAGS "-O2 -std=c11 -Wall -Wextra")
 endif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
 
-set(SOURCE_FILES main.c)
+set(SOURCE_FILES main.c gif.c)
 add_executable(gif-viewer ${SOURCE_FILES})
 #target_link_libraries(gif-viewer ${SDL_LIBRARIES})
 if(MINGW)

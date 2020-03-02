@@ -11,19 +11,12 @@ int main(int argc, char *argv[])
     (void) argc;
     (void) argv;
 
-    if (SDL_Init(SDL_INIT_EVENTS | SDL_INIT_TIMER | SDL_INIT_VIDEO) != 0) {
-        printf("%s\n", SDL_GetError());
-        return EXIT_FAILURE;
-    }
-
     gif_img image;
     image.colortable = NULL;
     image.colortable_length = 0;
     image.blocks = NULL;
     image.block_count = 0;
 
-    // Will skip 0x1A (CTRL+Z byte) on Windows if b is not set
-    //FILE *file = fopen64("../epicpolarbear.gif", "r+b");
     FILE *file = fopen("../epicpolarbear.gif", "r+b");
 
     if (file == NULL) {
@@ -31,39 +24,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    fread(&image.header.signature,     1, 3, file);
-    fread(&image.header.version,       1, 3, file);
-    fread(&image.header.screen_width,  1, 2, file);
-    fread(&image.header.screen_height, 1, 2, file);
-    fread(&image.header.packed,        1, 1, file);
-    fread(&image.header.background,    1, 1, file);
-    fread(&image.header.aspect_ratio,  1, 1, file);
-    int screen_width  = image.header.screen_width,
-        screen_height = image.header.screen_height;
-
-    printf("----- HEADER OF epicpolarbear.gif -----\n");
-    printf("signature:     %c%c%c\n",    image.header.signature[0],
-                                         image.header.signature[1],
-                                         image.header.signature[2]);
-    printf("version:       %c%c%c\n",    image.header.version[0],
-                                         image.header.version[1],
-                                         image.header.version[2]);
-    printf("screen_width:  %"PRIu16"\n", image.header.screen_width);
-    printf("screen_height: %"PRIu16"\n", image.header.screen_height);
-    printf("\n");
-
-    printf("----- LOGICAL SCREEN DESCRIPTORS -----\n");
-    printf("packed:        %"PRIu8"\n",  image.header.packed);
-    printf("background:    %"PRIu8"\n",  image.header.background);
-    printf("aspect_ratio:  %"PRIu8"\n",  image.header.aspect_ratio);
-    printf("\n");
-
-    printf("--- PACKED INFORMATION ---\n");
-    printf("colortable_size:  %"PRIu8"\n", image.header.packed & 0b00000111);
-    printf("sort_flag:        %"PRIu8"\n", image.header.packed & 0b00001000 >> 3);
-    printf("color_resolution: %"PRIu8"\n", image.header.packed & 0b01110000 >> 4);
-    printf("colortable_flag:  %"PRIu8"\n", image.header.packed & 0b10000000 >> 7);
-    printf("\n");
+    gif_read_header(file, &image.header);
 
     image.colortable_length = 1L << ((image.header.packed & 0b00000111) + 1);
     image.colortable = calloc(sizeof(gif_color), image.colortable_length);
@@ -71,30 +32,26 @@ int main(int argc, char *argv[])
         fread(&image.colortable[i].r, 1, 1, file);
         fread(&image.colortable[i].g, 1, 1, file);
         fread(&image.colortable[i].b, 1, 1, file);
-
-        //printf("global_colortable[%3"PRIu64"]: %2X%2X%2X\n", i,
-        //    image.colortable[i].r,
-        //    image.colortable[i].g,
-        //    image.colortable[i].b);
     }
-    //printf("\n");
 
-    printf("--- GLOBAL COLOR TABLE ---\n");
-    printf("length: %"PRIu64"\n", image.colortable_length);
-    printf("\n");
-
-    // For a color table of size 256, a position of 781 in the file after initial setup would make sense:
-    // 13 byte header + 3 r/g/b values * 256 colors = 13 + 768 = 781
-
+    // SDL Initialization and rendering
+    SDL_Window *window = NULL;
+    SDL_Renderer *renderer = NULL;
     double scale = 3.0;
     int window_width  = image.header.screen_width  * scale,
         window_height = image.header.screen_height * scale;
-    SDL_Window *window = SDL_CreateWindow(
+
+    if (SDL_Init(SDL_INIT_EVENTS | SDL_INIT_TIMER | SDL_INIT_VIDEO) != 0) {
+        printf("%s\n", SDL_GetError());
+        return EXIT_FAILURE;
+    }
+
+    window = SDL_CreateWindow(
         "epicpolarbearmeme.gif",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         window_width, window_height, 0);
     assert(window != NULL);
-    SDL_Renderer *renderer = SDL_CreateRenderer(
+    renderer = SDL_CreateRenderer(
         window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     assert(renderer != NULL);
 
@@ -108,7 +65,6 @@ int main(int argc, char *argv[])
         fread(&magic, 1, 1, file);
 
         if (magic == GIF_TRAILER) {
-            printf("FOUND GIF TRAILER AT %ld\n", ftell(file) - 1);
             parsing = 0;
             continue;
         }
@@ -120,12 +76,12 @@ int main(int argc, char *argv[])
             switch (magic) {
                 // Graphics Control Extension Block
                 case 0xF9:
-                    printf("FOUND GRAPHICS CONTROL EXTENSION BLOCK AT %ld\n", ftell(file) - 2);
+                    printf("FOUND GRAPHICS CONTROL EXTENSION BLOCK AT 0x%lX\n", ftell(file) - 2);
                     fseek(file, 6, SEEK_CUR);
                     break;
                 // Plain Text Extension Block
                 case 0x1:
-                    printf("FOUND PLAIN TEXT EXTENSION BLOCK AT %ld\n", ftell(file) - 2);
+                    printf("FOUND PLAIN TEXT EXTENSION BLOCK AT 0x%lX\n", ftell(file) - 2);
                     fseek(file, 13, SEEK_CUR);
                     fread(&magic, 1, 1, file);
                     while (magic != 0) {
@@ -135,7 +91,7 @@ int main(int argc, char *argv[])
                     break;
                 // Application Extension Block
                 case 0xFF:
-                    printf("FOUND APPLICATION EXTENSION BLOCK AT %ld\n", ftell(file) - 2);
+                    printf("FOUND APPLICATION EXTENSION BLOCK AT 0x%lX\n", ftell(file) - 2);
                     fseek(file, 12, SEEK_CUR);
                     fread(&magic, 1, 1, file);
                     while (magic != 0) {
@@ -145,7 +101,7 @@ int main(int argc, char *argv[])
                     break;
                 // Comment Extension Block
                 case 0xFE:
-                    printf("FOUND COMMENT EXTENSION BLOCK AT %ld\n", ftell(file) - 2);
+                    printf("FOUND COMMENT EXTENSION BLOCK AT 0x%lX\n", ftell(file) - 2);
                     fread(&magic, 1, 1, file);
                     while (magic != 0) {
                         fseek(file, magic, SEEK_CUR);
@@ -153,12 +109,13 @@ int main(int argc, char *argv[])
                     }
                     break;
                 default:
-                    printf("FOUND UNKNOWN EXTENSION BLOCK AT %ld\n", ftell(file) - 2);
+                    printf("FOUND UNKNOWN EXTENSION BLOCK AT 0x%lX\n", ftell(file) - 2);
                     break;
             }
             
-            printf("SKIPPED CONTROL BLOCK TO %ld\n", ftell(file) - 1);
+            printf("SKIPPED CONTROL BLOCK TO 0x%lX\n", ftell(file) - 1);
         }
+        // Read and decompress image block
         else if (magic == GIF_SEPARATOR) {
             gif_imgblock *new_blocks = realloc(image.blocks, sizeof(gif_imgblock) * (image.block_count + 1));
             assert(new_blocks != NULL);
@@ -169,14 +126,14 @@ int main(int argc, char *argv[])
             new_block->colortable = NULL;
             new_block->colortable_length = 0;
 
-            printf("IMAGE BLOCK BEGINNING AT %ld\n", ftell(file) - 1);
+            printf("IMAGE BLOCK BEGINNING AT 0x%lX\n", ftell(file) - 1);
             new_block->imgdesc.separator = magic;
             fread(&new_block->imgdesc.left,   1, 2, file);
             fread(&new_block->imgdesc.top,    1, 2, file);
             fread(&new_block->imgdesc.width,  1, 2, file);
             fread(&new_block->imgdesc.height, 1, 2, file);
             fread(&new_block->imgdesc.packed, 1, 1, file);
-            printf("New block at %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16"\n",
+            printf("New block at %"PRIu16", %"PRIu16" of size %"PRIu16", %"PRIu16"\n",
                 new_block->imgdesc.left,
                 new_block->imgdesc.top,
                 new_block->imgdesc.width,
@@ -199,51 +156,37 @@ int main(int argc, char *argv[])
 
             if (texture == NULL) {
                 SDL_Surface *surface = NULL;
-                uint8_t *pixels = malloc(screen_width * screen_height * 3);
+                const uint64_t pixels_size = new_block->imgdesc.width * new_block->imgdesc.height * 3;
+                uint8_t *pixels[pixels_size];
+                memset(pixels, 0, pixels_size);
 
-                // Clear
-                for (int i = 0; i < screen_width * screen_height * 3; i++) {
-                    pixels[i] = 0xFF;
-                }
-
-                // Decode the image data and then create the surface
-                // TODO: Adjust to flexible code sizes
-                uint8_t lzw_minimum = 0;
-                fread(&lzw_minimum, 1, 1, file);
-                printf("Minimum LZW code value: %"PRIu8"\n", lzw_minimum);
-                
-                // Initialize color table
-                gif_color *dictionary = malloc(image.colortable_length * sizeof(gif_color));
-                memcpy(dictionary, image.colortable, image.colortable_length * sizeof(gif_color));
-
-                // Progress in the pixels buffer
-                int progress = new_block->imgdesc.top * new_block->imgdesc.width + new_block->imgdesc.left;
-                
+                // LZW Minimum length
+                fseek(file, 1, SEEK_CUR);
+                // Size of block
                 fread(&magic, 1, 1, file);
                 while (magic != 0) {
-                    for (uint8_t i = 0; i < magic; i++) {
-                        uint64_t color_index = 0;
-                        fread(&color_index, 1, 1, file);
-                        gif_color *color = &dictionary[color_index];
-                        pixels[progress  ] = color->r;
-                        pixels[progress+1] = color->g;
-                        pixels[progress+2] = color->b;
-                        progress += 3;
-                    }
+                    fseek(file, magic, SEEK_CUR);
                     fread(&magic, 1, 1, file);
                 }
-                free(dictionary);
 
                 // Little endian, in this case
                 // TODO: We may want to make this portable
                 // See https://wiki.libsdl.org/SDL_CreateRGBSurfaceFrom for more
                 surface = SDL_CreateRGBSurfaceFrom(
-                    pixels, screen_width, screen_height, 24, 3 * screen_width,
-                    0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
+                    pixels,
+                    new_block->imgdesc.width,
+                    new_block->imgdesc.height,
+                    24,
+                    3 * new_block->imgdesc.width,
+                    0x000000FF,
+                    0x0000FF00,
+                    0x00FF0000,
+                    0xFF000000);
                 texture = SDL_CreateTextureFromSurface(renderer, surface);
                 SDL_FreeSurface(surface);
                 // Remember to free the pixel data AFTER using it, since it does not get copied
-                free(pixels);
+
+                printf("READ IMAGINE CONTROL BLOCK AND GENERATED TEXTURE\n");
             }
             else {
                 fseek(file, 1, SEEK_CUR);
@@ -253,7 +196,7 @@ int main(int argc, char *argv[])
                     fread(&magic, 1, 1, file);
                 }
 
-                printf("SKIPPED IMAGE DATA BLOCKS TO %ld\n", ftell(file) - 1);
+                printf("SKIPPED IMAGE DATA BLOCKS TO 0x%lX\n", ftell(file) - 1);
             }
         }
 
