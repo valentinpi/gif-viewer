@@ -8,7 +8,7 @@ include_directories(${SDL_INCLUDE_DIR})
 
 # GCC flags
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    set(CMAKE_C_FLAGS "-O2 -std=c11 -Wall -Wextra")
+    set(CMAKE_C_FLAGS "-g -O2 -std=c11 -Wall -Wextra")
 endif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
 
 set(SOURCE_FILES main.c gif.c)

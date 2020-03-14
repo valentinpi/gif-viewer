@@ -1,7 +1,3 @@
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #include <SDL2/SDL.h>
 
 #include "gif.h"
@@ -17,7 +13,8 @@ int main(int argc, char *argv[])
     image.blocks = NULL;
     image.block_count = 0;
 
-    FILE *file = fopen("../epicpolarbear.gif", "r+b");
+    //FILE *file = fopen("../epicpolarbear.gif", "r+b");
+    FILE *file = fopen("../gif-test/oneblackpixel.gif", "r+b");
 
     if (file == NULL) {
         fprintf(stderr, "../epicpolarbear.gif could not be opened!\n");
@@ -25,14 +22,7 @@ int main(int argc, char *argv[])
     }
 
     gif_read_header(file, &image.header);
-
-    image.colortable_length = 1L << ((image.header.packed & 0b00000111) + 1);
-    image.colortable = calloc(sizeof(gif_color), image.colortable_length);
-    for (uint64_t i = 0; i < image.colortable_length; i++) {
-        fread(&image.colortable[i].r, 1, 1, file);
-        fread(&image.colortable[i].g, 1, 1, file);
-        fread(&image.colortable[i].b, 1, 1, file);
-    }
+    gif_read_global_colortable(file, &image);
 
     // SDL Initialization and rendering
     SDL_Window *window = NULL;
@@ -142,7 +132,7 @@ int main(int argc, char *argv[])
             // Local color table
             if (new_block->imgdesc.packed & 1) {
                 uint64_t table_size = (new_block->imgdesc.packed & 0b11100000) >> 5;
-                new_block->colortable_length = 1L << (table_size + 1);
+                new_block->colortable_length = 1 << (table_size + 1);
                 new_block->colortable = calloc(new_block->colortable_length, sizeof(gif_color));
 
                 for (uint64_t i = 0; i < new_block->colortable_length; i++) {
@@ -157,36 +147,74 @@ int main(int argc, char *argv[])
             if (texture == NULL) {
                 SDL_Surface *surface = NULL;
                 const uint64_t pixels_size = new_block->imgdesc.width * new_block->imgdesc.height * 3;
-                uint8_t *pixels[pixels_size];
+                uint8_t pixels[pixels_size];
                 memset(pixels, 0, pixels_size);
 
-                // LZW Minimum length
-                fseek(file, 1, SEEK_CUR);
-                // Size of block
-                fread(&magic, 1, 1, file);
-                while (magic != 0) {
-                    fseek(file, magic, SEEK_CUR);
-                    fread(&magic, 1, 1, file);
-                }
+                /* DECOMPRESSION */
 
-                // Little endian, in this case
-                // TODO: We may want to make this portable
-                // See https://wiki.libsdl.org/SDL_CreateRGBSurfaceFrom for more
+                gif_lzw_dict_entry dict[4096];
+                uint64_t dict_size = 0;
+
+                uint8_t minimum_code_length = 0;
+                fread(&minimum_code_length, 1, 1, file);
+
+                uint64_t pixels_index = 0;
+                while (magic != 0) {
+                    fread(&magic, 1, 1, file);
+
+                    uint8_t compressed[magic];
+                    fread(compressed, 1, magic, file);
+
+                    if (pixels_index == 0) {
+                        for (uint64_t j = 0; j < magic; j++) {
+                            printf("<%"PRIu8"> ", compressed[j]);
+                        }
+                        printf("\b\n");
+                    }
+
+                    uint8_t *image_data = NULL;
+                    uint64_t image_data_size = 0;
+                    gif_lzw_decode(
+                        minimum_code_length,
+                        compressed, magic,
+                        &image_data, &image_data_size,
+                        dict, &dict_size,
+                        image.colortable, image.colortable_length);
+                    assert(image_data != NULL);
+
+                    memcpy(pixels + pixels_index * 3, image_data, image_data_size);
+                    pixels_index += image_data_size;
+
+                    free(image_data);
+                }
+                printf("Size: %"PRIu64", Index: %"PRIu64"\n", pixels_size, pixels_index);
+
+                // See https://wiki.libsdl.org/SDL_CreateRGBSurfaceFrom for more details on endianess
                 surface = SDL_CreateRGBSurfaceFrom(
                     pixels,
                     new_block->imgdesc.width,
                     new_block->imgdesc.height,
                     24,
                     3 * new_block->imgdesc.width,
+                #if SDL_BYTEORDER == SDL_BIG_ENDIAN
+                    0x00FF0000,
+                    0x0000FF00,
+                    0x000000FF,
+                    0x00000000);
+                #else
                     0x000000FF,
                     0x0000FF00,
                     0x00FF0000,
-                    0xFF000000);
+                    0x00000000);
+                #endif
                 texture = SDL_CreateTextureFromSurface(renderer, surface);
                 SDL_FreeSurface(surface);
-                // Remember to free the pixel data AFTER using it, since it does not get copied
 
-                printf("READ IMAGINE CONTROL BLOCK AND GENERATED TEXTURE\n");
+                printf("Read image block and generated texture\n");
+
+                for (uint64_t i = 0; i < dict_size; i++) {
+                    free(dict[i].decomp);
+                }
             }
             else {
                 fseek(file, 1, SEEK_CUR);

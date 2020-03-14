@@ -1,7 +1,10 @@
 #pragma once
 
+#include <assert.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 // Not used at the moment
 #define GIF_SEPARATOR  0x2C
@@ -54,22 +57,17 @@ typedef struct {
 
 typedef struct {
     uint16_t code;
-    uint8_t  *str;
+    uint8_t  *decomp;
+    uint64_t decomp_size;
 } gif_lzw_dict_entry;
 
-static inline void gif_read_header(FILE *file, gif_header *header)
-{
-    fread(&header->signature,     1, 3, file);
-    fread(&header->version,       1, 3, file);
-    fread(&header->screen_width,  1, 2, file);
-    fread(&header->screen_height, 1, 2, file);
-    fread(&header->packed,        1, 1, file);
-    fread(&header->background,    1, 1, file);
-    fread(&header->aspect_ratio,  1, 1, file);
-}
+void gif_read_header(FILE *file, gif_header *header);
+void gif_read_global_colortable(FILE *file, gif_img *image);
 
+// Since you can't easily predict the final decompressed size, pass a pointer with value NULL for dest
 void gif_lzw_decode(
-    uint8_t lzw_minimum,
-    uint8_t *src, uint64_t src_size,
-    uint8_t **dest, uint8_t *dest_size,
-    gif_lzw_dict_entry **dict);
+    uint8_t minimum_code_length,
+    const uint8_t *src, const uint64_t src_size,
+    uint8_t **dest, uint64_t *dest_size,
+    gif_lzw_dict_entry *dict, uint64_t *dict_size,
+    gif_color *colortable, uint64_t colortable_size);
