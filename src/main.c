@@ -7,6 +7,11 @@ int main(int argc, char *argv[])
     (void) argc;
     (void) argv;
 
+    if (argc < 2) {
+        printf("Usage: gif-viewer <file path>\n");
+        return EXIT_FAILURE;
+    }
+
     gif_img image;
     image.colortable = NULL;
     image.colortable_length = 0;
@@ -14,10 +19,10 @@ int main(int argc, char *argv[])
     image.block_count = 0;
 
     //FILE *file = fopen("../epicpolarbear.gif", "r+b");
-    FILE *file = fopen("../gif-test/oneblackpixel.gif", "r+b");
+    FILE *file = fopen(argv[1], "r+b");
 
     if (file == NULL) {
-        fprintf(stderr, "../epicpolarbear.gif could not be opened!\n");
+        fprintf(stderr, "%s could not be opened!\n", argv[1]);
         return EXIT_FAILURE;
     }
 
