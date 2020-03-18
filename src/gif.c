@@ -108,7 +108,7 @@ void gif_decode(
             }
 
             cur_code_len++;
-            max_entries = (1 << cur_code_len) + 1;
+            max_entries = 1 << cur_code_len;
             #if DEBUG
             printf("Code length: %"PRIu8"\n", cur_code_len);
             printf("Maximum number of entries: %"PRIu64"\n", max_entries);
@@ -169,6 +169,10 @@ void gif_decode(
             new->decomp_size = last->decomp_size + 1;
             dict_base_offset++;
 
+            if (dict_base + dict_base_offset == clear) {
+                dict_base_offset += 2;
+            }
+
             #if DEBUG
             printf("Added code %"PRIu16, new->code);
             #endif
@@ -191,6 +195,9 @@ void gif_decode(
             #endif
 
             (*dict_size)++;
+            #if DEBUG
+            printf("Dictionary size: %"PRIu64"\n", *dict_size);
+            #endif
 
             if (cols_size + entry->decomp_size > cols_reserved) {
                 cols = realloc(cols, cols_size + 4096);
@@ -210,9 +217,9 @@ void gif_decode(
 
             last = entry;
 
-            if (*dict_size >= max_entries) {
+            if (*dict_size + 2 >= max_entries) {
                 cur_code_len++;
-                max_entries = (1 << cur_code_len) + 1;
+                max_entries = 1 << cur_code_len;
 
                 #if DEBUG
                 printf("Code length: %"PRIu8"\n", cur_code_len);

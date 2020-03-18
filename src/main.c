@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
 
                 /* DECOMPRESSION */
 
-                gif_lzw_dict_entry *dict = malloc(sizeof(gif_lzw_dict_entry) * 4096);
+                gif_lzw_dict_entry *dict = calloc(4096, sizeof(gif_lzw_dict_entry));
                 uint64_t dict_size = 0;
 
                 uint8_t min_code_len = 0;
@@ -180,7 +180,7 @@ int main(int argc, char *argv[])
                         image.colortable, image.colortable_length);
                     assert(image_data != NULL);
 
-                    memcpy(pixels + pixels_index, image_data, image_data_size);
+                    memcpy(pixels + pixels_index, image_data, pixels_size);
                     pixels_index += image_data_size;
 
                     free(image_data);
