@@ -63,8 +63,11 @@ typedef struct {
 
 void gif_read_header(FILE *file, gif_header *header);
 void gif_read_global_colortable(FILE *file, gif_img *image);
-// Since you can't easily predict the final decompressed size, pass a pointer with value NULL for dest
-void gif_lzw_decode(
+// src        should NOT be an invalid pointer
+// dest       should be a pointer to a pointer of value NULL
+// dict       should be an array of 4096 entries
+// colortable should NOT be empty
+void gif_decode(
     const uint8_t min_code_len,
     const uint8_t *src,         const uint64_t src_size,
     uint8_t **dest,             uint64_t *dest_size,

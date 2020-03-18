@@ -22,45 +22,43 @@ inline void gif_read_global_colortable(FILE *file, gif_img *image)
     }
 }
 
-void gif_lzw_decode(
+void gif_decode(
     const uint8_t min_code_len,
     const uint8_t *src,         const uint64_t src_size,
     uint8_t **dest,             uint64_t *dest_size,
     gif_lzw_dict_entry *dict,   uint64_t *dict_size,
     gif_color *colortable,      uint64_t colortable_size)
 {
-    uint8_t cur_code_len = min_code_len;
-
-    uint8_t *cols = calloc(src_size, 1);
+    uint8_t *cols = malloc(src_size);
     uint64_t cols_size = 0, cols_reserved = src_size;
-
+    
+    uint8_t cur_code_len = min_code_len;
     // Last two entries of initial dictionary
     uint16_t clear = 1 << cur_code_len,
              eoi = clear + 1;
 
-    // Initialize single indicies, clear and termination code
-    for (uint64_t i = 0; i < (uint64_t) (eoi + 1); i++) {
-        dict[i].code = i;
-        dict[i].decomp = malloc(1);
-        dict[i].decomp[0] = i;
-        dict[i].decomp_size = 1;
+    if (*dict_size == 0) {
+        // Initialize single indicies, clear and termination code
+        for (uint64_t i = 0; i < colortable_size; i++) {
+            dict[i].code = i;
+            dict[i].decomp = malloc(1);
+            dict[i].decomp[0] = i;
+            dict[i].decomp_size = 1;
+        }
+        *dict_size = colortable_size;
     }
 
-    *dict_size = eoi + 1;
+    #define DEBUG 1
 
-    // Decompress the image data
     uint64_t src_index = 0,
              max_entries = 0;
     uint32_t bytes = 0;
     uint8_t  cur_bit = 0,
              mask = 0,
              code = 0;
-    // LZW
     gif_lzw_dict_entry *last = NULL;
     uint64_t dict_base = *dict_size,
              dict_base_offset = 0;
-
-    #define DEBUG 1
     int initialized = 0, decompressing = 1;
     while (src_index < src_size && decompressing) {
         if (!initialized) {
@@ -99,12 +97,21 @@ void gif_lzw_decode(
                 }
                 cols[cols_size] = last->decomp[0];
                 cols_size++;
+
+                #if DEBUG
+                printf("Wrote to index stream: ");
+                for (uint64_t i = 0; i < last->decomp_size; i++) {
+                    printf("<%"PRIu8">", last->decomp[i]);
+                }
+                printf("\n");
+                #endif
             }
 
             cur_code_len++;
-            max_entries = 1 << (cur_code_len + 1);
+            max_entries = (1 << cur_code_len) + 1;
             #if DEBUG
             printf("Code length: %"PRIu8"\n", cur_code_len);
+            printf("Maximum number of entries: %"PRIu64"\n", max_entries);
             #endif
 
             initialized = 1;
@@ -130,8 +137,9 @@ void gif_lzw_decode(
 
             cur_code_len = min_code_len;
 
-            for (uint64_t i = eoi + 1; i < *dict_size; i++) {
+            for (uint64_t i = dict_base; i < *dict_size; i++) {
                 free(dict[i].decomp);
+                dict[i].decomp = NULL;
             }
 
             dict_base_offset = 0;
@@ -160,6 +168,11 @@ void gif_lzw_decode(
             new->decomp      = malloc(last->decomp_size + 1);
             new->decomp_size = last->decomp_size + 1;
             dict_base_offset++;
+
+            #if DEBUG
+            printf("Added code %"PRIu16, new->code);
+            #endif
+
             memcpy(new->decomp, last->decomp, last->decomp_size);
             if (entry != NULL) {
                 new->decomp[last->decomp_size] = entry->decomp[0];
@@ -168,29 +181,74 @@ void gif_lzw_decode(
                 new->decomp[last->decomp_size] = last->decomp[0];
                 entry = new;
             }
+            
+            #if DEBUG        
+            printf(" with value ");
+            for (uint64_t i = 0; i < new->decomp_size; i++) {
+                printf("<%"PRIu8">", new->decomp[i]);
+            }
+            printf("\n");
+            #endif
 
             (*dict_size)++;
 
+            if (cols_size + entry->decomp_size > cols_reserved) {
+                cols = realloc(cols, cols_size + 4096);
+                assert(cols != NULL);
+                cols_reserved += 4096;
+            }
             memcpy(cols + cols_size, entry->decomp, entry->decomp_size);
             cols_size += entry->decomp_size;
+
+            #if DEBUG
+            printf("Wrote to index stream: ");
+            for (uint64_t i = 0; i < entry->decomp_size; i++) {
+                printf("<%"PRIu8">", entry->decomp[i]);
+            }
+            printf("\n");
+            #endif
 
             last = entry;
 
             if (*dict_size >= max_entries) {
                 cur_code_len++;
-                max_entries = 1 << (cur_code_len + 1);
+                max_entries = (1 << cur_code_len) + 1;
+
+                #if DEBUG
+                printf("Code length: %"PRIu8"\n", cur_code_len);
+                printf("Maximum number of entries: %"PRIu64"\n", max_entries);
+                #endif
             }
         }
+    }
+
+    if (last != NULL) {
+       if (cols_size + last->decomp_size > cols_reserved) {
+            cols = realloc(cols, cols_size + 4096);
+            assert(cols != NULL);
+            cols_reserved += 4096;
+        }
+        memcpy(cols + cols_size, last->decomp, last->decomp_size);
+        cols_size += last->decomp_size;
+
+        #if DEBUG
+        printf("Wrote to index stream: ");
+        for (uint64_t i = 0; i < last->decomp_size; i++) {
+            printf("<%"PRIu8">", last->decomp[i]);
+        }
+        printf("\n");
+        #endif
     }
 
     *dest = calloc(cols_size, 3);
     *dest_size = cols_size * 3;
     uint8_t *image_data = *dest;
     for (uint64_t i = 0; i < cols_size; i++) {
-        gif_color *current_color = &(colortable[i]);
-        image_data[i*3  ] = current_color->r;
-        image_data[i*3+1] = current_color->g;
-        image_data[i*3+2] = current_color->b;
+        uint8_t color_index = cols[i];
+        gif_color *color = &(colortable[color_index]);
+        image_data[i*3  ] = color->r;
+        image_data[i*3+1] = color->g;
+        image_data[i*3+2] = color->b;
     }
 
     free(cols);

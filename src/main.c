@@ -152,28 +152,28 @@ int main(int argc, char *argv[])
             if (texture == NULL) {
                 SDL_Surface *surface = NULL;
                 const uint64_t pixels_size = new_block->imgdesc.width * new_block->imgdesc.height * 3;
-                uint8_t pixels[pixels_size];
+                uint8_t *pixels = malloc(pixels_size);
                 memset(pixels, 0, pixels_size);
 
                 /* DECOMPRESSION */
 
-                gif_lzw_dict_entry dict[4096];
+                gif_lzw_dict_entry *dict = malloc(sizeof(gif_lzw_dict_entry) * 4096);
                 uint64_t dict_size = 0;
 
-                uint8_t minimum_code_length = 0;
-                fread(&minimum_code_length, 1, 1, file);
+                uint8_t min_code_len = 0;
+                fread(&min_code_len, 1, 1, file);
 
                 uint64_t pixels_index = 0;
+                fread(&magic, 1, 1, file);
                 while (magic != 0) {
-                    fread(&magic, 1, 1, file);
 
-                    uint8_t compressed[magic];
+                    uint8_t *compressed = malloc(magic);
                     fread(compressed, 1, magic, file);
 
                     uint8_t *image_data = NULL;
                     uint64_t image_data_size = 0;
-                    gif_lzw_decode(
-                        minimum_code_length,
+                    gif_decode(
+                        min_code_len,
                         compressed, magic,
                         &image_data, &image_data_size,
                         dict, &dict_size,
@@ -184,8 +184,16 @@ int main(int argc, char *argv[])
                     pixels_index += image_data_size;
 
                     free(image_data);
+                    free(compressed);
+
+                    fread(&magic, 1, 1, file);
                 }
                 printf("Size: %"PRIu64", Index: %"PRIu64"\n", pixels_size, pixels_index);
+
+                for (uint64_t i = 0; i < dict_size; i++) {
+                    free(dict[i].decomp);
+                }
+                free(dict);
 
                 // See https://wiki.libsdl.org/SDL_CreateRGBSurfaceFrom for more details on endianess
                 surface = SDL_CreateRGBSurfaceFrom(
@@ -208,11 +216,9 @@ int main(int argc, char *argv[])
                 texture = SDL_CreateTextureFromSurface(renderer, surface);
                 SDL_FreeSurface(surface);
 
-                printf("Read image blocks and generated texture\n");
+                free(pixels);
 
-                for (uint64_t i = 0; i < dict_size; i++) {
-                    free(dict[i].decomp);
-                }
+                printf("Read image blocks and generated texture\n");
             }
             else {
                 fseek(file, 1, SEEK_CUR);
