@@ -32,9 +32,9 @@ int main(int argc, char *argv[])
     // SDL Initialization and rendering
     SDL_Window *window = NULL;
     SDL_Renderer *renderer = NULL;
-    double scale = 3.0;
-    int window_width  = image.header.screen_width  * scale,
-        window_height = image.header.screen_height * scale;
+    const double scale = 15.0;
+    const int window_width  = image.header.screen_width  * scale,
+              window_height = image.header.screen_height * scale;
 
     if (SDL_Init(SDL_INIT_EVENTS | SDL_INIT_TIMER | SDL_INIT_VIDEO) != 0) {
         printf("%s\n", SDL_GetError());
@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
     }
 
     window = SDL_CreateWindow(
-        "epicpolarbearmeme.gif",
+        argv[1],
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         window_width, window_height, 0);
     assert(window != NULL);
@@ -170,13 +170,6 @@ int main(int argc, char *argv[])
                     uint8_t compressed[magic];
                     fread(compressed, 1, magic, file);
 
-                    if (pixels_index == 0) {
-                        for (uint64_t j = 0; j < magic; j++) {
-                            printf("<%"PRIu8"> ", compressed[j]);
-                        }
-                        printf("\b\n");
-                    }
-
                     uint8_t *image_data = NULL;
                     uint64_t image_data_size = 0;
                     gif_lzw_decode(
@@ -187,7 +180,7 @@ int main(int argc, char *argv[])
                         image.colortable, image.colortable_length);
                     assert(image_data != NULL);
 
-                    memcpy(pixels + pixels_index * 3, image_data, image_data_size);
+                    memcpy(pixels + pixels_index, image_data, image_data_size);
                     pixels_index += image_data_size;
 
                     free(image_data);
@@ -215,7 +208,7 @@ int main(int argc, char *argv[])
                 texture = SDL_CreateTextureFromSurface(renderer, surface);
                 SDL_FreeSurface(surface);
 
-                printf("Read image block and generated texture\n");
+                printf("Read image blocks and generated texture\n");
 
                 for (uint64_t i = 0; i < dict_size; i++) {
                     free(dict[i].decomp);
