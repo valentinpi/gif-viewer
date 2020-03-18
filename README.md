@@ -8,6 +8,7 @@ Keep in mind, this is a rather small project so it probably will not work with e
 - [Formal overview of the GIF specification](https://www.fileformat.info/format/gif/egff.htm)
 - [Summary of the file format](http://www.onicos.com/staff/iz/formats/gif.html)
 - [Wikipedia page of the LZW compression algorithm](https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Welch)
+- [A breakdown of a GIF decoder](https://commandlinefanatic.com/cgi-bin/showarticle.cgi?article=art011)
 
 This software depends on [SDL2](https://www.libsdl.org/index.php).
 
