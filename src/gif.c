@@ -22,6 +22,27 @@ inline void gif_read_global_colortable(FILE *file, gif_img *image)
     }
 }
 
+uint16_t gif_read_code(
+    const uint8_t *src,
+    uint64_t *byte,
+    uint8_t *bit,
+    const uint8_t code_len)
+{
+    uint32_t bytes = src[(*byte) + 2] << 16 | src[(*byte) + 1] << 8 | src[*byte];
+    uint8_t mask = (1 << code_len) - 1;
+    uint16_t res = (bytes >> (*bit)) & mask;
+    (*bit) += code_len;
+
+    if ((*bit) >= 8) {
+        (*bit) -= 8;
+        (*byte)++;
+    }
+
+    printf("Read code %"PRIu16" of length %"PRIu8"\n", res, code_len);
+
+    return res;
+}
+
 void gif_decode(
     const uint8_t min_code_len,
     const uint8_t *src,         const uint64_t src_size,
@@ -32,9 +53,9 @@ void gif_decode(
     uint8_t *cols = malloc(src_size);
     uint64_t cols_size = 0, cols_reserved = src_size;
     
-    uint8_t cur_code_len = min_code_len;
+    uint8_t cur_code_len = min_code_len + 1;
     // Last two entries of initial dictionary
-    uint16_t clear = 1 << cur_code_len,
+    uint16_t clear = 1 << min_code_len,
              eoi = clear + 1;
 
     if (*dict_size == 0) {
@@ -45,16 +66,12 @@ void gif_decode(
             dict[i].decomp[0] = i;
             dict[i].decomp_size = 1;
         }
-        *dict_size = colortable_size;
+        *dict_size = eoi + 1;
     }
-
-    #define DEBUG 1
 
     uint64_t src_index = 0,
              max_entries = 0;
-    uint32_t bytes = 0;
     uint8_t  cur_bit = 0,
-             mask = 0,
              code = 0;
     gif_lzw_dict_entry *last = NULL;
     uint64_t dict_base = *dict_size,
@@ -62,14 +79,13 @@ void gif_decode(
     int initialized = 0, decompressing = 1;
     while (src_index < src_size && decompressing) {
         if (!initialized) {
-            cur_code_len--;
-            bytes = (src[src_index+2] << 16) | (src[src_index+1] << 8) | src[src_index];
-            mask = (1 << cur_code_len) - 1;
-            code = (bytes >> cur_bit) & mask;
-            #if DEBUG
-            printf("Code length: %"PRIu8"\n", cur_code_len);
-            printf("Code read:   %"PRIu8"\n", code);
-            #endif
+            code = gif_read_code(src, &src_index, &cur_bit, cur_code_len);
+            if (code == clear) {
+                code = gif_read_code(src, &src_index, &cur_bit, cur_code_len);
+            }
+            if (code == eoi) {
+                code = gif_read_code(src, &src_index, &cur_bit, cur_code_len);
+            }
 
             last = NULL;
             for (uint64_t i = 0; i < *dict_size; i++) {
@@ -78,82 +94,42 @@ void gif_decode(
                     break;
                 }
             }
-            assert(last != NULL);
-
-            cur_bit += cur_code_len;
-            if (cur_bit >= 8) {
-                cur_bit -= 8;
-                src_index++;
+            if (last == NULL) {
+                last = &(dict[0]);
             }
 
-            // Only valid if 2^code length is equal to colortable length
-            if (code != clear && code != eoi) {
-                if (cols_size + 1 > cols_reserved) {
-                    uint8_t *new_cols = NULL;
-                    new_cols = realloc(cols, cols_size + src_size);
-                    assert(new_cols != NULL);
-                    cols = new_cols;
-                    cols_reserved += src_size;
-                }
-                cols[cols_size] = last->decomp[0];
-                cols_size++;
+            cols[cols_size] = last->decomp[0];
+            cols_size++;
 
-                #if DEBUG
-                printf("Wrote to index stream: ");
-                for (uint64_t i = 0; i < last->decomp_size; i++) {
-                    printf("<%"PRIu8">", last->decomp[i]);
-                }
-                printf("\n");
-                #endif
-            }
-
-            cur_code_len++;
             max_entries = 1 << cur_code_len;
-            #if DEBUG
-            printf("Code length: %"PRIu8"\n", cur_code_len);
-            printf("Maximum number of entries: %"PRIu64"\n", max_entries);
-            #endif
 
             initialized = 1;
         }
 
-        bytes = (src[src_index+2] << 16) | (src[src_index+1] << 8) | src[src_index];
-        mask = (1 << cur_code_len) - 1;
-        code = (bytes >> cur_bit) & mask;
-        cur_bit += cur_code_len;
-        #if DEBUG
-        printf("Code read:   %"PRIu8"\n", code);
-        #endif
-
-        if (cur_bit >= 8) {
-            cur_bit -= 8;
-            src_index++;
-        }
-
+        code = gif_read_code(src, &src_index, &cur_bit, cur_code_len);
         if (code == clear) {
-            #if DEBUG
-            printf("Clear code read!\n");
-            #endif
-
-            cur_code_len = min_code_len;
+            printf("Clear code encountered!\n");
+            cur_code_len = min_code_len + 1;
 
             for (uint64_t i = dict_base; i < *dict_size; i++) {
                 free(dict[i].decomp);
+                dict[i].code = 0;
                 dict[i].decomp = NULL;
+                dict[i].decomp_size = 0;
             }
 
             dict_base_offset = 0;
-            *dict_size = colortable_size;
+            *dict_size = eoi + 1;
             initialized = 0;
         }
         else if (code == eoi) {
-            #if DEBUG
-            printf("End of information code read!\n");
-            #endif
-
             decompressing = 0;
         }
         else {
+            if (*dict_size >= 4096) {
+                continue;
+            }
+
             gif_lzw_dict_entry *entry = NULL;
 
             for (uint64_t i = 0; i < *dict_size; i++) {
@@ -169,14 +145,6 @@ void gif_decode(
             new->decomp_size = last->decomp_size + 1;
             dict_base_offset++;
 
-            if (dict_base + dict_base_offset == clear) {
-                dict_base_offset += 2;
-            }
-
-            #if DEBUG
-            printf("Added code %"PRIu16, new->code);
-            #endif
-
             memcpy(new->decomp, last->decomp, last->decomp_size);
             if (entry != NULL) {
                 new->decomp[last->decomp_size] = entry->decomp[0];
@@ -186,18 +154,7 @@ void gif_decode(
                 entry = new;
             }
             
-            #if DEBUG        
-            printf(" with value ");
-            for (uint64_t i = 0; i < new->decomp_size; i++) {
-                printf("<%"PRIu8">", new->decomp[i]);
-            }
-            printf("\n");
-            #endif
-
             (*dict_size)++;
-            #if DEBUG
-            printf("Dictionary size: %"PRIu64"\n", *dict_size);
-            #endif
 
             if (cols_size + entry->decomp_size > cols_reserved) {
                 cols = realloc(cols, cols_size + 4096);
@@ -207,45 +164,24 @@ void gif_decode(
             memcpy(cols + cols_size, entry->decomp, entry->decomp_size);
             cols_size += entry->decomp_size;
 
-            #if DEBUG
-            printf("Wrote to index stream: ");
-            for (uint64_t i = 0; i < entry->decomp_size; i++) {
-                printf("<%"PRIu8">", entry->decomp[i]);
-            }
-            printf("\n");
-            #endif
-
             last = entry;
 
-            if (*dict_size + 2 >= max_entries) {
+            if (*dict_size >= max_entries && *dict_size < 4096) {
                 cur_code_len++;
-                max_entries = 1 << cur_code_len;
-
-                #if DEBUG
-                printf("Code length: %"PRIu8"\n", cur_code_len);
-                printf("Maximum number of entries: %"PRIu64"\n", max_entries);
-                #endif
+                max_entries = (1 << cur_code_len);
             }
         }
     }
 
-    if (last != NULL) {
-       if (cols_size + last->decomp_size > cols_reserved) {
-            cols = realloc(cols, cols_size + 4096);
-            assert(cols != NULL);
-            cols_reserved += 4096;
-        }
-        memcpy(cols + cols_size, last->decomp, last->decomp_size);
-        cols_size += last->decomp_size;
+    printf("Current byte: %"PRIu64" Current bit: %"PRIu8"\n", src_index, cur_bit);
 
-        #if DEBUG
-        printf("Wrote to index stream: ");
-        for (uint64_t i = 0; i < last->decomp_size; i++) {
-            printf("<%"PRIu8">", last->decomp[i]);
-        }
-        printf("\n");
-        #endif
+    if (cols_size + last->decomp_size > cols_reserved) {
+        cols = realloc(cols, cols_size + 4096);
+        assert(cols != NULL);
+        cols_reserved += 4096;
     }
+    memcpy(cols + cols_size, last->decomp, last->decomp_size);
+    cols_size += last->decomp_size;
 
     *dest = calloc(cols_size, 3);
     *dest_size = cols_size * 3;

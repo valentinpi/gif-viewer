@@ -152,8 +152,7 @@ int main(int argc, char *argv[])
             if (texture == NULL) {
                 SDL_Surface *surface = NULL;
                 const uint64_t pixels_size = new_block->imgdesc.width * new_block->imgdesc.height * 3;
-                uint8_t *pixels = malloc(pixels_size);
-                memset(pixels, 0, pixels_size);
+                uint8_t *pixels = calloc(pixels_size, 1);
 
                 /* DECOMPRESSION */
 
@@ -180,7 +179,12 @@ int main(int argc, char *argv[])
                         image.colortable, image.colortable_length);
                     assert(image_data != NULL);
 
-                    memcpy(pixels + pixels_index, image_data, pixels_size);
+                    if (image_data_size > pixels_size) {
+                        memcpy(pixels + pixels_index, image_data, pixels_size);
+                    }
+                    else {
+                        memcpy(pixels + pixels_index, image_data, image_data_size);
+                    }
                     pixels_index += image_data_size;
 
                     free(image_data);
