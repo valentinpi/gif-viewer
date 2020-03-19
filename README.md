@@ -13,3 +13,5 @@ Keep in mind, this is a rather small project so it probably will not work with e
 This software depends on [SDL2](https://www.libsdl.org/index.php).
 
 You will probably have to use your own build system for now. I am using CMake. I have uploaded my own CMake file, but it may not work with your configuration.
+
+Some of the examples I painted myself were made using [GIMP](https://www.gimp.org/). For the other examples and the [specification text](https://www.w3.org/Graphics/GIF/spec-gif89a.txt) I do not claim copyright. These files are only included for educational purposes.
