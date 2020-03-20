@@ -1,6 +1,6 @@
 #include "gif.h"
 
-inline void gif_read_header(FILE *file, gif_header *header)
+void gif_read_header(FILE *file, gif_header *header)
 {
     fread(&header->signature,     1, 3, file);
     fread(&header->version,       1, 3, file);
@@ -11,7 +11,7 @@ inline void gif_read_header(FILE *file, gif_header *header)
     fread(&header->aspect_ratio,  1, 1, file);
 }
 
-inline void gif_read_global_colortable(FILE *file, gif_img *image)
+void gif_read_global_colortable(FILE *file, gif_img *image)
 {
     image->colortable_length = 1L << ((image->header.packed & 0b00000111) + 1);
     image->colortable = calloc(sizeof(gif_color), image->colortable_length);
@@ -29,14 +29,14 @@ uint16_t gif_read_code(
     const uint8_t code_len)
 {
     uint32_t bytes = src[(*byte) + 2] << 16 | src[(*byte) + 1] << 8 | src[*byte];
-    uint8_t mask = (1 << code_len) - 1;
+    uint16_t mask = (1 << code_len) - 1;
     uint16_t res = (bytes >> (*bit)) & mask;
     (*bit) += code_len;
 
-    if ((*bit) >= 8) {
-        (*bit) -= 8;
-        (*byte)++;
-    }
+    // Adjust bit and byte count
+    uint8_t quot = (*bit) / 8, mod = (*bit) % 8;
+    (*bit) = mod;
+    (*byte) += quot;
 
     printf("Read code %"PRIu16" of length %"PRIu8"\n", res, code_len);
 
@@ -54,10 +54,12 @@ void gif_decode(
     uint64_t cols_size = 0, cols_reserved = src_size;
     
     uint8_t cur_code_len = min_code_len + 1;
-    // Last two entries of initial dictionary
-    uint16_t clear = 1 << min_code_len,
-             eoi = clear + 1;
 
+    // Last two entries of initial dictionary
+    const uint16_t clear = 1 << min_code_len,
+                   eoi   = clear + 1;
+
+    int initialized = 0;
     if (*dict_size == 0) {
         // Initialize single indicies, clear and termination code
         for (uint64_t i = 0; i < colortable_size; i++) {
@@ -69,14 +71,18 @@ void gif_decode(
         *dict_size = eoi + 1;
     }
 
-    uint64_t src_index = 0,
-             max_entries = 0;
-    uint8_t  cur_bit = 0,
-             code = 0;
+    // Reading codes
+    uint64_t src_index = 0;
+    uint8_t  cur_bit = 0;
+    uint16_t code = 0;
+
+    // LZW and dictionary reset
     gif_lzw_dict_entry *last = NULL;
-    uint64_t dict_base = *dict_size,
-             dict_base_offset = 0;
-    int initialized = 0, decompressing = 1;
+    uint64_t dict_base = eoi + 1,
+             dict_base_offset = *dict_size - dict_base;
+    uint64_t max_entries = 0;
+
+    int decompressing = 1;
     while (src_index < src_size && decompressing) {
         if (!initialized) {
             code = gif_read_code(src, &src_index, &cur_bit, cur_code_len);
@@ -98,6 +104,11 @@ void gif_decode(
                 last = &(dict[0]);
             }
 
+            if (cols_size + last->decomp_size > cols_reserved) {
+                cols = realloc(cols, cols_reserved + 4096);
+                assert(cols != NULL);
+                cols_reserved += 4096;
+            }
             cols[cols_size] = last->decomp[0];
             cols_size++;
 
@@ -118,11 +129,12 @@ void gif_decode(
                 dict[i].decomp_size = 0;
             }
 
+            *dict_size = dict_base;
             dict_base_offset = 0;
-            *dict_size = eoi + 1;
             initialized = 0;
         }
         else if (code == eoi) {
+            printf("EOI code encountered!\n");
             decompressing = 0;
         }
         else {
@@ -139,7 +151,7 @@ void gif_decode(
                 } 
             }
 
-            gif_lzw_dict_entry *new = &dict[*dict_size];
+            gif_lzw_dict_entry *new = &dict[dict_base + dict_base_offset];
             new->code        = dict_base + dict_base_offset;
             new->decomp      = malloc(last->decomp_size + 1);
             new->decomp_size = last->decomp_size + 1;
@@ -157,11 +169,12 @@ void gif_decode(
             (*dict_size)++;
 
             if (cols_size + entry->decomp_size > cols_reserved) {
-                cols = realloc(cols, cols_size + 4096);
+                cols = realloc(cols, cols_reserved + 4096);
                 assert(cols != NULL);
                 cols_reserved += 4096;
             }
             memcpy(cols + cols_size, entry->decomp, entry->decomp_size);
+            printf("%"PRIu64"\n", entry->decomp_size);
             cols_size += entry->decomp_size;
 
             last = entry;

@@ -63,11 +63,6 @@ typedef struct {
 
 void gif_read_header(FILE *file, gif_header *header);
 void gif_read_global_colortable(FILE *file, gif_img *image);
-uint16_t gif_read_code(
-    const uint8_t *src,
-    uint64_t *byte,
-    uint8_t *bit,
-    const uint8_t code_len);
 // src        should NOT be an invalid pointer
 // dest       should be a pointer to a pointer of value NULL
 // dict       should be an array of 4096 entries

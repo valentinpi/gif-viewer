@@ -7,8 +7,8 @@ int main(int argc, char *argv[])
     (void) argc;
     (void) argv;
 
-    if (argc < 2) {
-        printf("Usage: gif-viewer <file path>\n");
+    if (argc < 3) {
+        printf("Usage: gif-viewer <file path> <scale>\n");
         return EXIT_FAILURE;
     }
 
@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
     // SDL Initialization and rendering
     SDL_Window *window = NULL;
     SDL_Renderer *renderer = NULL;
-    const double scale = 15.0;
+    const double scale = strtod(argv[2], NULL);
     const int window_width  = image.header.screen_width  * scale,
               window_height = image.header.screen_height * scale;
 
@@ -155,44 +155,42 @@ int main(int argc, char *argv[])
                 uint8_t *pixels = calloc(pixels_size, 1);
 
                 /* DECOMPRESSION */
+                uint8_t min_code_len = 0;
+                fread(&min_code_len, 1, 1, file);
 
                 gif_lzw_dict_entry *dict = calloc(4096, sizeof(gif_lzw_dict_entry));
                 uint64_t dict_size = 0;
 
-                uint8_t min_code_len = 0;
-                fread(&min_code_len, 1, 1, file);
-
-                uint64_t pixels_index = 0;
+                uint8_t *compressed = NULL;
+                uint64_t compressed_size = 0;
                 fread(&magic, 1, 1, file);
                 while (magic != 0) {
-
-                    uint8_t *compressed = malloc(magic);
-                    fread(compressed, 1, magic, file);
-
-                    uint8_t *image_data = NULL;
-                    uint64_t image_data_size = 0;
-                    gif_decode(
-                        min_code_len,
-                        compressed, magic,
-                        &image_data, &image_data_size,
-                        dict, &dict_size,
-                        image.colortable, image.colortable_length);
-                    assert(image_data != NULL);
-
-                    if (image_data_size > pixels_size) {
-                        memcpy(pixels + pixels_index, image_data, pixels_size);
-                    }
-                    else {
-                        memcpy(pixels + pixels_index, image_data, image_data_size);
-                    }
-                    pixels_index += image_data_size;
-
-                    free(image_data);
-                    free(compressed);
-
+                    compressed = realloc(compressed, compressed_size + magic);
+                    assert(compressed != NULL);
+                    fread(compressed + compressed_size, 1, magic, file);
+                    compressed_size += magic;
                     fread(&magic, 1, 1, file);
                 }
-                printf("Size: %"PRIu64", Index: %"PRIu64"\n", pixels_size, pixels_index);
+
+                uint8_t *image_data = NULL;
+                uint64_t image_data_size = 0;
+                gif_decode(
+                    min_code_len,
+                    compressed, compressed_size,
+                    &image_data, &image_data_size,
+                    dict, &dict_size,
+                    image.colortable, image.colortable_length);
+                assert(image_data != NULL);
+
+                if (image_data_size >= pixels_size) {
+                    memcpy(pixels, image_data, pixels_size);
+                }
+                else {
+                    memcpy(pixels, image_data, image_data_size);
+                }
+
+                free(image_data);
+                free(compressed);
 
                 for (uint64_t i = 0; i < dict_size; i++) {
                     free(dict[i].decomp);
