@@ -22,6 +22,19 @@ void gif_read_global_colortable(FILE *file, gif_img *image)
     }
 }
 
+void gif_read_ext_graphicsblock(FILE *file, gif_ext_graphicsblock *graphics)
+{
+    graphics->introducer = 0x21;
+    graphics->label      = 0xF9;
+    graphics->block_size = 0x04;
+    fseek(file, 1, SEEK_CUR);
+    fread(&graphics->packed,      1, 1, file);
+    fread(&graphics->delay,       1, 2, file);
+    fread(&graphics->color_index, 1, 1, file);
+    graphics->terminator = 0x00;
+    fseek(file, 1, SEEK_CUR);
+}
+
 uint16_t gif_read_code(
     const uint8_t *src,
     uint64_t *byte,
@@ -37,8 +50,6 @@ uint16_t gif_read_code(
     uint8_t quot = (*bit) / 8, mod = (*bit) % 8;
     (*bit) = mod;
     (*byte) += quot;
-
-    printf("Read code %"PRIu16" of length %"PRIu8"\n", res, code_len);
 
     return res;
 }
@@ -82,8 +93,7 @@ void gif_decode(
              dict_base_offset = *dict_size - dict_base;
     uint64_t max_entries = 0;
 
-    int decompressing = 1;
-    while (src_index < src_size && decompressing) {
+    while (src_index < src_size) {
         if (!initialized) {
             code = gif_read_code(src, &src_index, &cur_bit, cur_code_len);
             if (code == clear) {
@@ -119,7 +129,6 @@ void gif_decode(
 
         code = gif_read_code(src, &src_index, &cur_bit, cur_code_len);
         if (code == clear) {
-            printf("Clear code encountered!\n");
             cur_code_len = min_code_len + 1;
 
             for (uint64_t i = dict_base; i < *dict_size; i++) {
@@ -134,8 +143,7 @@ void gif_decode(
             initialized = 0;
         }
         else if (code == eoi) {
-            printf("EOI code encountered!\n");
-            decompressing = 0;
+            break;
         }
         else {
             if (*dict_size >= 4096) {
@@ -174,7 +182,6 @@ void gif_decode(
                 cols_reserved += 4096;
             }
             memcpy(cols + cols_size, entry->decomp, entry->decomp_size);
-            printf("%"PRIu64"\n", entry->decomp_size);
             cols_size += entry->decomp_size;
 
             last = entry;
@@ -186,7 +193,6 @@ void gif_decode(
         }
     }
 
-    printf("Current byte: %"PRIu64" Current bit: %"PRIu8"\n", src_index, cur_bit);
 
     if (cols_size + last->decomp_size > cols_reserved) {
         cols = realloc(cols, cols_size + 4096);

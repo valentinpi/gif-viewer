@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <SDL2/SDL.h>
+
 // Not used at the moment
 #define GIF_SEPARATOR  0x2C
 #define GIF_CONTROL    0x21
@@ -42,19 +44,33 @@ typedef struct {
 } gif_imgdesc;
 
 typedef struct {
-    gif_imgdesc imgdesc;
-    gif_color*  colortable;
-    uint64_t    colortable_length;
+    uint8_t  introducer; // Always 0x21
+    uint8_t  label;      // Always 0xF9
+    uint8_t  block_size; // Always 0x04
+    uint8_t  packed;
+    uint16_t delay;
+    uint8_t  color_index;
+    uint8_t  terminator; // Always 0x00
+} gif_ext_graphicsblock;
+
+typedef struct {
+    gif_ext_graphicsblock graphics;
+    gif_imgdesc           imgdesc;
+    gif_color             *colortable;
+    uint64_t              colortable_length;
+    SDL_Texture           *image;
 } gif_imgblock;
 
 typedef struct {
     gif_header    header;
-    gif_color*    colortable;
+    gif_color     *colortable;
     uint64_t      colortable_length;
-    gif_imgblock* blocks;
-    uint64_t      block_count;
+    gif_imgblock  *blocks;
+    uint64_t      blocks_count;
+    uint64_t      blocks_reserved;
 } gif_img;
 
+// Helper structs
 typedef struct {
     uint16_t code;
     uint8_t  *decomp;
@@ -63,6 +79,9 @@ typedef struct {
 
 void gif_read_header(FILE *file, gif_header *header);
 void gif_read_global_colortable(FILE *file, gif_img *image);
+// Assumes the label was already read
+void gif_read_ext_graphicsblock(FILE *file, gif_ext_graphicsblock *graphics);
+
 // src        should NOT be an invalid pointer
 // dest       should be a pointer to a pointer of value NULL
 // dict       should be an array of 4096 entries
