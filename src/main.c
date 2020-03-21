@@ -215,7 +215,7 @@ int main(int argc, char *argv[])
     }
 
     fclose(file);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     cur_block_index = image.blocks_count - 1;
     uint32_t begin = SDL_GetTicks();
     int running = 1;
