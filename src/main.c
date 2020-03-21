@@ -103,8 +103,6 @@ int main(int argc, char *argv[])
         }
         // Read and decompress image block
         else if (magic == GIF_SEPARATOR) {
-            printf("IMAGE BLOCK BEGINNING AT 0x%lX\n", ftell(file) - 1);
-
             gif_imgblock *cur_block = &image.blocks[cur_imgblock];
             cur_block->imgdesc.separator = magic;
             fread(&cur_block->imgdesc.left,   1, 2, file);
@@ -112,11 +110,6 @@ int main(int argc, char *argv[])
             fread(&cur_block->imgdesc.width,  1, 2, file);
             fread(&cur_block->imgdesc.height, 1, 2, file);
             fread(&cur_block->imgdesc.packed, 1, 1, file);
-            printf("New block at %"PRIu16", %"PRIu16" of size %"PRIu16", %"PRIu16"\n",
-                cur_block->imgdesc.left,
-                cur_block->imgdesc.top,
-                cur_block->imgdesc.width,
-                cur_block->imgdesc.height);
 
             // Local color table
             if (cur_block->imgdesc.packed & 1) {
@@ -141,9 +134,6 @@ int main(int argc, char *argv[])
             uint8_t min_code_len = 0;
             fread(&min_code_len, 1, 1, file);
 
-            gif_lzw_dict_entry *dict = calloc(4096, sizeof(gif_lzw_dict_entry));
-            uint64_t dict_size = 0;
-
             uint8_t *compressed = NULL;
             uint64_t compressed_size = 0;
             fread(&magic, 1, 1, file);
@@ -157,12 +147,20 @@ int main(int argc, char *argv[])
 
             uint8_t *image_data = NULL;
             uint64_t image_data_size = 0;
-            gif_decode(
-                min_code_len,
-                compressed, compressed_size,
-                &image_data, &image_data_size,
-                dict, &dict_size,
-                image.colortable, image.colortable_length);
+            if (cur_block->imgdesc.packed & 1) {
+                gif_decode(
+                    min_code_len,
+                    compressed, compressed_size,
+                    &image_data, &image_data_size,
+                    cur_block->colortable, cur_block->colortable_length);
+            }
+            else {
+                gif_decode(
+                    min_code_len,
+                    compressed, compressed_size,
+                    &image_data, &image_data_size,
+                    image.colortable, image.colortable_length);
+            }
             assert(image_data != NULL);
 
             if (image_data_size >= pixels_size) {
@@ -174,11 +172,6 @@ int main(int argc, char *argv[])
 
             free(image_data);
             free(compressed);
-
-            for (uint64_t i = 0; i < dict_size; i++) {
-                free(dict[i].decomp);
-            }
-            free(dict);
 
             surface = SDL_CreateRGBSurfaceFrom(
                 pixels,

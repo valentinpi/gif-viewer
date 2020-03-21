@@ -70,13 +70,6 @@ typedef struct {
     uint64_t      blocks_reserved;
 } gif_img;
 
-// Helper structs
-typedef struct {
-    uint16_t code;
-    uint8_t  *decomp;
-    uint64_t decomp_size;
-} gif_lzw_dict_entry;
-
 void gif_read_header(FILE *file, gif_header *header);
 void gif_read_global_colortable(FILE *file, gif_img *image);
 // Assumes the label was already read
@@ -90,5 +83,4 @@ void gif_decode(
     const uint8_t min_code_len,
     const uint8_t *src,         const uint64_t src_size,
     uint8_t **dest,             uint64_t *dest_size,
-    gif_lzw_dict_entry *dict,   uint64_t *dict_size,
     gif_color *colortable,      uint64_t colortable_size);

@@ -35,6 +35,12 @@ void gif_read_ext_graphicsblock(FILE *file, gif_ext_graphicsblock *graphics)
     fseek(file, 1, SEEK_CUR);
 }
 
+typedef struct {
+    uint16_t code;
+    uint8_t  *decomp;
+    uint64_t decomp_size;
+} gif_lzw_dict_entry;
+
 uint16_t gif_read_code(
     const uint8_t *src,
     uint64_t *byte,
@@ -58,9 +64,11 @@ void gif_decode(
     const uint8_t min_code_len,
     const uint8_t *src,         const uint64_t src_size,
     uint8_t **dest,             uint64_t *dest_size,
-    gif_lzw_dict_entry *dict,   uint64_t *dict_size,
     gif_color *colortable,      uint64_t colortable_size)
 {
+    gif_lzw_dict_entry *dict = calloc(4096, sizeof(gif_lzw_dict_entry));
+    uint64_t dict_size = 0;
+
     uint8_t *cols = malloc(src_size);
     uint64_t cols_size = 0, cols_reserved = src_size;
     
@@ -71,7 +79,7 @@ void gif_decode(
                    eoi   = clear + 1;
 
     int initialized = 0;
-    if (*dict_size == 0) {
+    if (dict_size == 0) {
         // Initialize single indicies, clear and termination code
         for (uint64_t i = 0; i < colortable_size; i++) {
             dict[i].code = i;
@@ -79,7 +87,7 @@ void gif_decode(
             dict[i].decomp[0] = i;
             dict[i].decomp_size = 1;
         }
-        *dict_size = eoi + 1;
+        dict_size = eoi + 1;
     }
 
     // Reading codes
@@ -90,7 +98,7 @@ void gif_decode(
     // LZW and dictionary reset
     gif_lzw_dict_entry *last = NULL;
     uint64_t dict_base = eoi + 1,
-             dict_base_offset = *dict_size - dict_base;
+             dict_base_offset = dict_size - dict_base;
     uint64_t max_entries = 0;
 
     while (src_index < src_size) {
@@ -104,7 +112,7 @@ void gif_decode(
             }
 
             last = NULL;
-            for (uint64_t i = 0; i < *dict_size; i++) {
+            for (uint64_t i = 0; i < dict_size; i++) {
                 if (code == dict[i].code) {
                     last = &(dict[i]);
                     break;
@@ -131,14 +139,14 @@ void gif_decode(
         if (code == clear) {
             cur_code_len = min_code_len + 1;
 
-            for (uint64_t i = dict_base; i < *dict_size; i++) {
+            for (uint64_t i = dict_base; i < dict_size; i++) {
                 free(dict[i].decomp);
                 dict[i].code = 0;
                 dict[i].decomp = NULL;
                 dict[i].decomp_size = 0;
             }
 
-            *dict_size = dict_base;
+            dict_size = dict_base;
             dict_base_offset = 0;
             initialized = 0;
         }
@@ -146,13 +154,13 @@ void gif_decode(
             break;
         }
         else {
-            if (*dict_size >= 4096) {
+            if (dict_size >= 4096) {
                 continue;
             }
 
             gif_lzw_dict_entry *entry = NULL;
 
-            for (uint64_t i = 0; i < *dict_size; i++) {
+            for (uint64_t i = 0; i < dict_size; i++) {
                 if (dict[i].code == code) {
                     entry = &dict[i];
                     break;
@@ -174,7 +182,7 @@ void gif_decode(
                 entry = new;
             }
             
-            (*dict_size)++;
+            dict_size++;
 
             if (cols_size + entry->decomp_size > cols_reserved) {
                 cols = realloc(cols, cols_reserved + 4096);
@@ -186,7 +194,7 @@ void gif_decode(
 
             last = entry;
 
-            if (*dict_size >= max_entries && *dict_size < 4096) {
+            if (dict_size >= max_entries && dict_size < 4096) {
                 cur_code_len++;
                 max_entries = (1 << cur_code_len);
             }
@@ -214,4 +222,9 @@ void gif_decode(
     }
 
     free(cols);
+
+    for (uint64_t i = 0; i < dict_size; i++) {
+        free(dict[i].decomp);
+    }
+    free(dict);
 }
