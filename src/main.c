@@ -198,12 +198,13 @@ int main(int argc, char *argv[])
                 0x00FF0000,
                 0x00000000);
             #endif
+            SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
             cur_block->image = SDL_CreateTextureFromSurface(renderer, surface);
             SDL_FreeSurface(surface);
 
             free(pixels);
 
-            cur_block++;
+            cur_imgblock++;
             image.blocks_count++;
         }
     }
@@ -227,27 +228,34 @@ int main(int argc, char *argv[])
             }
         }
 
+        gif_imgblock *cur_block = &image.blocks[cur_image];
+        if (SDL_GetTicks() - begin + 16 >= cur_block->graphics.delay * 10) {
+            cur_image++;
+            if (cur_image == image.blocks_count) {
+                cur_image = 0;
+            }
+        }
+        else {
+            continue;
+        }
+
+        printf("Delay: %"PRIu16"\n", cur_block->graphics.delay);
+
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
 
-        gif_imgblock *cur_block = &image.blocks[cur_image];
         SDL_Rect dstrect = {
             cur_block->imgdesc.left   * scale,
             cur_block->imgdesc.top    * scale,
             cur_block->imgdesc.width  * scale,
             cur_block->imgdesc.height * scale
         };
-        SDL_RenderCopy(renderer, image.blocks[cur_image].image, NULL, &dstrect);
-        if (SDL_GetTicks() - begin >= cur_block->graphics.delay) {
-            //cur_image++;
-            //if (cur_image == image.blocks_count) {
-            //    cur_image = 0;
-            //}
-
-            begin = SDL_GetTicks();
-        }
+        SDL_RenderCopy(renderer, cur_block->image, NULL, &dstrect);
+        printf("Drawing texture %p to %d, %d, %d, %d\n", cur_block->image, dstrect.x, dstrect.y, dstrect.w, dstrect.h);
 
         SDL_RenderPresent(renderer);
+
+        begin = SDL_GetTicks();
     }
 
     free(image.colortable);
