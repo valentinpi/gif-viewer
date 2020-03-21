@@ -45,10 +45,11 @@ int main(int argc, char *argv[])
         window_width, window_height, 0);
     assert(window != NULL);
     renderer = SDL_CreateRenderer(
-        window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        window, -1, SDL_RENDERER_ACCELERATED);
+    //    window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     assert(renderer != NULL);
 
-    uint64_t cur_imgblock = 0;
+    uint64_t cur_block_index = 0;
     while (1) {
         uint8_t magic = 0;
         fread(&magic, 1, 1, file);
@@ -65,7 +66,7 @@ int main(int argc, char *argv[])
             switch (magic) {
                 // Graphics Control Extension Block
                 case 0xF9:
-                    gif_read_ext_graphicsblock(file, &image.blocks[cur_imgblock].graphics);
+                    gif_read_ext_graphicsblock(file, &image.blocks[cur_block_index].graphics);
                     break;
                 // Plain Text Extension Block
                 case 0x1:
@@ -103,7 +104,7 @@ int main(int argc, char *argv[])
         }
         // Read and decompress image block
         else if (magic == GIF_SEPARATOR) {
-            gif_imgblock *cur_block = &image.blocks[cur_imgblock];
+            gif_imgblock *cur_block = &image.blocks[cur_block_index];
             cur_block->imgdesc.separator = magic;
             fread(&cur_block->imgdesc.left,   1, 2, file);
             fread(&cur_block->imgdesc.top,    1, 2, file);
@@ -127,8 +128,8 @@ int main(int argc, char *argv[])
             }
 
             SDL_Surface *surface = NULL;
-            const uint64_t pixels_size = cur_block->imgdesc.width * cur_block->imgdesc.height * 3;
-            uint8_t *pixels = calloc(pixels_size, 1);
+            uint8_t *pixels = calloc(cur_block->imgdesc.width * cur_block->imgdesc.height * 4, 1);
+            const uint64_t pixels_size = cur_block->imgdesc.width * cur_block->imgdesc.height * 4;
 
             /* DECOMPRESSION */
             uint8_t min_code_len = 0;
@@ -147,20 +148,21 @@ int main(int argc, char *argv[])
 
             uint8_t *image_data = NULL;
             uint64_t image_data_size = 0;
+            gif_color *colortable = NULL;
+            uint64_t  *colortable_length = NULL;
             if (cur_block->imgdesc.packed & 1) {
-                gif_decode(
-                    min_code_len,
-                    compressed, compressed_size,
-                    &image_data, &image_data_size,
-                    cur_block->colortable, cur_block->colortable_length);
+                colortable = cur_block->colortable;
+                colortable_length = &cur_block->colortable_length;
             }
             else {
-                gif_decode(
-                    min_code_len,
-                    compressed, compressed_size,
-                    &image_data, &image_data_size,
-                    image.colortable, image.colortable_length);
+                colortable = image.colortable;
+                colortable_length = &image.colortable_length;
             }
+            gif_decode(
+                min_code_len,
+                compressed, compressed_size,
+                &image_data, &image_data_size,
+                colortable, *colortable_length);
             assert(image_data != NULL);
 
             if (image_data_size >= pixels_size) {
@@ -173,12 +175,24 @@ int main(int argc, char *argv[])
             free(image_data);
             free(compressed);
 
+            if (cur_block->graphics.packed & 0b00000001) {
+                gif_color *transparent_color = &colortable[cur_block->graphics.color_index];
+
+                for (uint64_t i = 0; i < pixels_size; i += 4) {
+                    if (pixels[i    ] == transparent_color->r &&
+                        pixels[i + 1] == transparent_color->g &&
+                        pixels[i + 2] == transparent_color->b) {
+                        pixels[i + 3] = 0;
+                    }
+                }
+            }
+
             surface = SDL_CreateRGBSurfaceFrom(
                 pixels,
                 cur_block->imgdesc.width,
                 cur_block->imgdesc.height,
-                24,
-                3 * cur_block->imgdesc.width,
+                32,
+                4 * cur_block->imgdesc.width,
             // See https://wiki.libsdl.org/SDL_CreateRGBSurfaceFrom for more details on endianess
             #if SDL_BYTEORDER == SDL_BIG_ENDIAN
                 0x00FF0000,
@@ -189,15 +203,15 @@ int main(int argc, char *argv[])
                 0x000000FF,
                 0x0000FF00,
                 0x00FF0000,
-                0x00000000);
+                0xFF000000);
             #endif
-            SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
+            SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
             cur_block->image = SDL_CreateTextureFromSurface(renderer, surface);
             SDL_FreeSurface(surface);
 
             free(pixels);
 
-            cur_imgblock++;
+            cur_block_index++;
             image.blocks_count++;
         }
     }
@@ -206,7 +220,9 @@ int main(int argc, char *argv[])
 
     fclose(file);
 
-    uint64_t cur_image = 0;
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+
+    cur_block_index = image.blocks_count - 1;
     uint32_t begin = SDL_GetTicks();
     int running = 1;
     while (running) {
@@ -221,22 +237,20 @@ int main(int argc, char *argv[])
             }
         }
 
-        gif_imgblock *cur_block = &image.blocks[cur_image];
-        if (SDL_GetTicks() - begin + 16 >= cur_block->graphics.delay * 10) {
-            cur_image++;
-            if (cur_image == image.blocks_count) {
-                cur_image = 0;
+        gif_imgblock *cur_block = &image.blocks[cur_block_index];
+        if (SDL_GetTicks() - begin >= cur_block->graphics.delay * 10) {
+            cur_block_index++;
+            if (cur_block_index == image.blocks_count) {
+                SDL_RenderClear(renderer);
+                cur_block_index = 0;
             }
         }
         else {
+            SDL_Delay(1);
             continue;
         }
 
-        printf("Delay: %"PRIu16"\n", cur_block->graphics.delay);
-
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-        SDL_RenderClear(renderer);
-
+        cur_block = &image.blocks[cur_block_index];
         SDL_Rect dstrect = {
             cur_block->imgdesc.left   * scale,
             cur_block->imgdesc.top    * scale,
@@ -244,8 +258,6 @@ int main(int argc, char *argv[])
             cur_block->imgdesc.height * scale
         };
         SDL_RenderCopy(renderer, cur_block->image, NULL, &dstrect);
-        printf("Drawing texture %p to %d, %d, %d, %d\n", cur_block->image, dstrect.x, dstrect.y, dstrect.w, dstrect.h);
-
         SDL_RenderPresent(renderer);
 
         begin = SDL_GetTicks();

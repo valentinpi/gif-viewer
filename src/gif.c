@@ -210,15 +210,16 @@ void gif_decode(
     memcpy(cols + cols_size, last->decomp, last->decomp_size);
     cols_size += last->decomp_size;
 
-    *dest = calloc(cols_size, 3);
-    *dest_size = cols_size * 3;
+    *dest = calloc(cols_size, 4);
+    *dest_size = cols_size * 4;
     uint8_t *image_data = *dest;
     for (uint64_t i = 0; i < cols_size; i++) {
         uint8_t color_index = cols[i];
         gif_color *color = &(colortable[color_index]);
-        image_data[i*3  ] = color->r;
-        image_data[i*3+1] = color->g;
-        image_data[i*3+2] = color->b;
+        image_data[i*4  ] = color->r;
+        image_data[i*4+1] = color->g;
+        image_data[i*4+2] = color->b;
+        image_data[i*4+3] = 255;
     }
 
     free(cols);
