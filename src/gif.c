@@ -201,7 +201,6 @@ void gif_decode(
         }
     }
 
-
     if (cols_size + last->decomp_size > cols_reserved) {
         cols = realloc(cols, cols_size + 4096);
         assert(cols != NULL);

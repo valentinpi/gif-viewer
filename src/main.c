@@ -123,8 +123,6 @@ int main(int argc, char *argv[])
                     fread(&cur_block->colortable[i].g, 1, 1, file);
                     fread(&cur_block->colortable[i].b, 1, 1, file);
                 }
-
-                printf("Read local color table of size %"PRIu64"\n", cur_block->colortable_length);
             }
 
             SDL_Surface *surface = NULL;
@@ -216,12 +214,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    printf("Block count: %"PRIu64"\n", image.blocks_count);
-
     fclose(file);
-
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-
     cur_block_index = image.blocks_count - 1;
     uint32_t begin = SDL_GetTicks();
     int running = 1;
